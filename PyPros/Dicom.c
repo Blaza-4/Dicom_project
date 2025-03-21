@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <jpeglib.h>
+
+void write_dicom_tag(FILE *dicom,uint16_t group,uint16_t element,const char *vr,char *value);
+void write_dicom_numeric(FILE *dicom,uint16_t group,uint16_t element,const char *vr,uint32_t value);
+void write_pixel_data(FILE *dicom, uint8_t *data, int width, int height);
 // DICOM Header Structure
 struct DICOM_Header {
     char prefix[128];    // Empty 128 bytes
@@ -17,57 +21,7 @@ struct DICOM_Tag {
     char value[64];
 };
 
-// Function to Write a DICOM Tag
-void write_dicom_tag(FILE *file, uint16_t group, uint16_t element, const char *value) {
-    uint32_t length = strlen(value);
-    fwrite(&group, 2, 1, file);
-    fwrite(&element, 2, 1, file);
-    fwrite(&length, 4, 1, file);
-    fwrite(value, length, 1, file);
-}
-
-// Function to Convert JPG to Grayscale and Get Raw Data
-// uint8_t *convert_jpg_to_raw(const char *jpg_filename, int *width, int *height) {
-//     FILE *jpg = fopen(jpg_filename, "rb");
-// if (!jpg) {
-//     printf("Error: Cannot open JPG file: %s\n", jpg_filename);
-//     return NULL;
-// }
-
-
-//     struct jpeg_decompress_struct cinfo;
-//     struct jpeg_error_mgr jerr;
-//     cinfo.err = jpeg_std_error(&jerr);
-//     jpeg_create_decompress(&cinfo);
-//     jpeg_stdio_src(&cinfo, jpg);
-//     jpeg_read_header(&cinfo, TRUE);
-//     jpeg_start_decompress(&cinfo);
-
-//     *width = cinfo.output_width;
-//     *height = cinfo.output_height;
-//     int row_stride = cinfo.output_width * cinfo.output_components;
-//     uint8_t *raw_data = (uint8_t *)malloc((*width) * (*height));
-
-//     uint8_t *buffer = (uint8_t *)malloc(row_stride);
-//     int row = 0;
-
-//     while (cinfo.output_scanline < cinfo.output_height) {
-//         jpeg_read_scanlines(&cinfo, &buffer, 1);
-//         for (int i = 0; i < *width; i++) {
-//             uint8_t gray = (buffer[i * 3] + buffer[i * 3 + 1] + buffer[i * 3 + 2]) / 3;
-//             raw_data[row * (*width) + i] = gray;
-//         }
-//         row++;
-//     }
-
-//     jpeg_finish_decompress(&cinfo);
-//     jpeg_destroy_decompress(&cinfo);
-//     fclose(jpg);
-//     free(buffer);
-    
-//     return raw_data;
-// }
-uint16_t *convert_jpg_to_raw(const char *jpg_filename, int *width, int *height) {
+uint8_t *convert_jpg_to_raw(const char *jpg_filename, int *width, int *height) {
     FILE *jpg = fopen(jpg_filename, "rb");
     if (!jpg) return NULL;
 
@@ -83,13 +37,16 @@ uint16_t *convert_jpg_to_raw(const char *jpg_filename, int *width, int *height) 
     *width = cinfo.output_width;
     *height = cinfo.output_height;
 
-    uint16_t *raw_data = malloc((*width) * (*height) * 2);  // Allocate 16-bit buffer
+    uint8_t *raw_data = malloc((*width) * (*height) * 2);  // Allocate 16-bit buffer
     uint8_t *buffer = malloc(*width);
 
     for (int row = 0; row < *height; row++) {
         jpeg_read_scanlines(&cinfo, &buffer, 1);
         for (int col = 0; col < *width; col++) {
-            raw_data[row * (*width) + col] = buffer[col] << 8;  // Convert 8-bit to 16-bit
+            //raw_data[row * (*width) + col] = buffer[col] << 8;  // Convert 8-bit to 16-bit
+            uint16_t pixel_value = buffer[col];
+            raw_data[2 * (row * (*width) + col)] = (uint8_t)(pixel_value & 0xFF);  // Low byte
+            raw_data[2 * (row * (*width) + col) + 1] = (uint8_t)(pixel_value >> 8); 
         }
     }
 
@@ -111,6 +68,8 @@ int main() {
     uint8_t *raw_data = convert_jpg_to_raw(jpg_filename, &width, &height);
     if (!raw_data) {
         return -1;
+    } else {
+        printf("converted");
     }
 
     FILE *dicom = fopen(dicom_filename, "wb");
@@ -121,39 +80,118 @@ int main() {
     }
 
     // Create and Write DICOM Header
-    struct DICOM_Header header = {0};
-    strcpy(header.magic, "DICM");
-    fwrite(&header, sizeof(header), 1, dicom);
+    struct DICOM_Header head ={0};
+    memcpy(head.magic,"DICM",4);
+    fwrite(&head, sizeof(head), 1, dicom);
 
     // Add Metadata Tags
-    write_dicom_tag(dicom, 0x0008, 0x0060, "OT");  
-    write_dicom_tag(dicom, 0x0010, 0x0010, "John Doe");  // Patient Name
-    write_dicom_tag(dicom, 0x0010, 0x0020, "1234");  // Patient ID
-    // Modality (OT = Other)
+    uint32_t metalen = 0;
+    long metalen_pos = ftell(dicom);
+
+    write_dicom_numeric(dicom,0x0002,0x0000,"UL",metalen);
+    write_dicom_tag(dicom,0x0002,0x0001,"OB","\x00\x01");
+    write_dicom_tag(dicom,0x0002,0x0002,"UI","1.2.840.10008.1.3.10");
+    write_dicom_tag(dicom,0x0002,0x0003,"UI","1.2.840.10008.1.2.1");
+    write_dicom_tag(dicom,0x0002,0x0010,"UI","1.2.840.10008.1.2.1");
+    write_dicom_tag(dicom,0x0002,0x0013,"SH","ACSIA_TECH");
+
+    long current_pos = ftell(dicom);
+    metalen = current_pos - metalen_pos - 12; // 12 bytes for the tag, VR, and length field
+    fseek(dicom, metalen_pos + 8, SEEK_SET); // moving +8 pos to skip tag and VR
+    fwrite(&metalen, 4, 1, dicom);
+    fseek(dicom, current_pos, SEEK_SET);
+
+    printf("wrote meta data");
+    write_dicom_tag(dicom, 0x0008, 0x0060,"CS", "OT");  
+    write_dicom_tag(dicom, 0x0010, 0x0010,"PN", "ADIN");  
+    write_dicom_tag(dicom, 0x0010, 0x0020,"LO", "C332"); // Patient ID
     
-    // Pixel Data Tag (7FE0,0010)
-    uint16_t pixel_data_group = 0x7FE0;
-    uint16_t pixel_data_element = 0x0010;
-    uint32_t pixel_data_length = width * height *2;
+
+    write_dicom_numeric(dicom, 0x0028, 0x0002, "US", 1); 
+    write_dicom_numeric(dicom,0x0028,0x0010,"US",width);
+    write_dicom_numeric(dicom,0x0028,0x0011,"US",height);
+   // write_dicom_tag(dicom,0x7FE0,0x0010,"OW",raw_data); 
+
+     // Add these before writing pixel data
+          // Samples per Pixel
+     write_dicom_numeric(dicom, 0x0028, 0x0100, "US", 16);     // Bits Allocated
+     write_dicom_numeric(dicom, 0x0028, 0x0101, "US", 16);     // Bits Stored
+     write_dicom_numeric(dicom, 0x0028, 0x0102, "US", 15);     // High Bit
+     write_dicom_numeric(dicom, 0x0028, 0x0103, "US", 0); 
+                                                                   // Pixel Representation (0=unsigned)
+     write_pixel_data(dicom, raw_data, width, height);
     
-    fwrite(&pixel_data_group, 2, 1, dicom);
-    fwrite(&pixel_data_element, 2, 1, dicom);
-    fwrite("OW",2,1,dicom);
-    fwrite("\x00\x00",2,1,dicom);
-
-    fwrite(&pixel_data_length, 4, 1, dicom);
-
-    // Append Pixel Data
-    fwrite(raw_data, 2, width * height , dicom);
-
-    if(pixel_data_length % 2 !=0){
-        uint8_t pad =0;
-        fwrite(&pad , 1 ,1, dicom);
-    }
-
+   
     fclose(dicom);
     free(raw_data);
 
     printf("DICOM file created: %s\n", dicom_filename);
     return 0;
+}
+void write_dicom_tag(FILE *dicom,uint16_t group,uint16_t element,const char *vr,char *value){
+    uint16_t len = strlen(value);
+    fwrite(&group, 2, 1, dicom);
+    fwrite(&element, 2, 1, dicom);
+    fwrite(vr, 2, 1, dicom);
+    if (strcmp(vr, "OB") == 0 || strcmp(vr, "OW") == 0 || strcmp(vr, "OF") == 0 || 
+        strcmp(vr, "SQ") == 0 || strcmp(vr, "UT") == 0 || strcmp(vr, "UN") == 0) {
+        uint16_t reserved = 0;
+        uint32_t length32 = len;
+        fwrite(&reserved, 2, 1, dicom);
+        fwrite(&length32, 4, 1, dicom);
+    } else {
+        //Other VRs have 2-byte length
+        fwrite(&len, 2, 1, dicom);
+    }
+    fwrite(value, len, 1, dicom);
+    
+    
+}
+void write_dicom_numeric(FILE *dicom,uint16_t group,uint16_t element,const char *vr,uint32_t value){
+    fwrite(&group, 2, 1, dicom);
+    fwrite(&element, 2, 1, dicom);
+    fwrite(vr, 2, 1, dicom);
+    
+    // For OB, OW, OF, SQ, UT, and UN, add reserved 2 bytes and 4-byte length
+    if (strcmp(vr, "OB") == 0 || strcmp(vr, "OW") == 0 || strcmp(vr, "OF") == 0 || 
+        strcmp(vr, "SQ") == 0 || strcmp(vr, "UT") == 0 || strcmp(vr, "UN") == 0) {
+        uint16_t reserved = 0;
+        uint32_t length32 = 4;
+        fwrite(&reserved, 2, 1, dicom);
+        fwrite(&length32, 4, 1, dicom);
+    } else {
+        uint16_t len = 4;
+        fwrite(&len, 2, 1, dicom);
+    }
+    fwrite(&value, 4, 1, dicom);
+
+}
+
+void write_pixel_data(FILE *dicom, uint8_t *data, int width, int height) {
+    // Write tag
+    uint16_t group = 0x7FE0;
+    uint16_t element = 0x0010;
+    fwrite(&group, 2, 1, dicom);
+    fwrite(&element, 2, 1, dicom);
+    
+    // For 16-bit data, use OW value representation
+    const char *vr = "OW";
+    fwrite(vr, 2, 1, dicom);
+    
+    // Calculate data length - ensure it's a multiple of 2
+    uint32_t data_length = width * height * 2; // 16-bit data (2 bytes per pixel)
+    
+    // Use explicit length encoding instead of undefined length
+    uint16_t reserved = 0;
+    fwrite(&reserved, 2, 1, dicom);
+    fwrite(&data_length, 4, 1, dicom);
+    
+    // Write the actual pixel data
+    fwrite(data, 1, data_length, dicom); // order of arguments: fwrite(ptr, size, count, stream)
+    
+    
+    if (data_length % 2 != 0) {
+        uint8_t padding = 0;
+        fwrite(&padding, 1, 1, dicom);
+    }
 }

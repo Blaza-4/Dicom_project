@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 from PIL import Image
 
 # Read the DICOM file
-dcm_file = pydicom.dcmread('/home/adin.n@acsiatech.com/Desktop/CAD/output_image.dcm')
+dcm_file = pydicom.dcmread('output.dcm')
 
 
 # Read the DICOM file
@@ -27,7 +27,9 @@ print("Study Date:", study_date)
 print("Modality:", modality)
 print("Image Type:", image_type)
 # Get pixel data from the DICOM file
-#pixel_data = dcm_file.pixel_array
+pixel_data = dcm_file.pixel_array
+
+print(pixel_data)
 
 # Convert pixel data to a PIL Image
 #image = Image.fromarray(pixel_data)
