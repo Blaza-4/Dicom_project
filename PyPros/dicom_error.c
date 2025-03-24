@@ -85,17 +85,17 @@ int main() {
 
     // Add Metadata Tags
     uint32_t metalen = 0;
-    long metalen_pos = ftell(dicom);
+    long metalen_pos = ftell(dicom);    //saving current postion of meta length 
 
-    write_dicom_numeric(dicom,0x0002,0x0000,"UL",metalen);
+    //write_dicom_numeric(dicom,0x0002,0x0000,"UL",metalen);   //dicom metadatalength first we wrire temp val the change it 
     write_dicom_tag(dicom,0x0002,0x0001,"OB","\x00\x01");
-    // Change this in your code
+  
     write_dicom_tag(dicom, 0x0002, 0x0002, "UI", "1.2.840.10008.5.1.4.1.1.7");  // Secondary Capture Image Storage 
-    write_dicom_tag(dicom,0x0002,0x0003,"UI","1.2.840.10008.1.2.1");
+    write_dicom_tag(dicom,0x0002,0x0003,"UI","1.2.840.10008.1.2.1");  
     write_dicom_tag(dicom,0x0002,0x0010,"UI","1.2.840.10008.1.2.1");
     write_dicom_tag(dicom,0x0002,0x0013,"SH","ACSIA_TECH");
-    // Add this before writing pixel data
-    // Secondary Capture Image Storage
+   
+   
 
     long current_pos = ftell(dicom);
     metalen = current_pos - metalen_pos - 12; // 12 bytes for the tag, VR, and length field
