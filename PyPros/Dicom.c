@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <jpeglib.h>
+//edited from linux
 // DICOM Header Structure
 struct DICOM_Header {
     char prefix[128];    // Empty 128 bytes
